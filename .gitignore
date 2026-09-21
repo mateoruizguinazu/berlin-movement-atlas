@@ -1,0 +1,21 @@
+# ---------------------------------------------------------------------------
+# DATOS PERSONALES — nunca deben subirse.
+# Contienen coordenadas exactas de domicilio y trabajo. Si alguno entra al
+# historial, borrarlo en un commit posterior NO alcanza: hay que reescribir la
+# historia (git filter-repo) y forzar el push.
+# ---------------------------------------------------------------------------
+Timeline.json
+timeline.json
+*.timeline.json
+berlin_points.json
+
+# HTML generados: llevan los datos embebidos dentro del propio archivo
+heatmap_berlin.html
+berlin_explorer.html
+
+# Entorno y temporales
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.claude/

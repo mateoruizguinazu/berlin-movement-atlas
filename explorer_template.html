@@ -1,0 +1,1582 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Berlin Movement Atlas</title>
+<link href="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.css" rel="stylesheet" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#05070b;
+  --glass:rgba(16,20,28,.58);
+  --glass-strong:rgba(13,17,24,.86);
+  --stroke:rgba(255,255,255,.085);
+  --stroke-hi:rgba(255,255,255,.16);
+  --txt:#e9eef6;
+  --muted:#8593a6;
+  --dim:#5d6a7c;
+  --c1:#4cc9f0;
+  --c2:#f72585;
+  --c3:#ffd166;
+  --ok:#20c997;
+  --r:16px;
+  --shadow:0 18px 50px -12px rgba(0,0,0,.75), 0 2px 8px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{
+  background:var(--bg);
+  color:var(--txt);
+  font-family:Inter,system-ui,-apple-system,sans-serif;
+  font-size:13px;
+  -webkit-font-smoothing:antialiased;
+}
+#map{position:fixed;inset:0}
+canvas{outline:none}
+
+/* ---------- vignette / ambience ---------- */
+#ambience{
+  position:fixed;inset:0;pointer-events:none;z-index:2;
+  background:
+    radial-gradient(120% 80% at 50% 0%,transparent 40%,rgba(0,0,0,.45) 100%),
+    radial-gradient(100% 100% at 50% 100%,transparent 55%,rgba(0,0,0,.5) 100%);
+}
+
+/* ---------- glass primitives ---------- */
+.glass{
+  background:var(--glass);
+  backdrop-filter:blur(22px) saturate(150%);
+  -webkit-backdrop-filter:blur(22px) saturate(150%);
+  border:1px solid var(--stroke);
+  border-radius:var(--r);
+  box-shadow:var(--shadow);
+  position:relative;
+}
+.glass::before{
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:linear-gradient(160deg,rgba(255,255,255,.07),rgba(255,255,255,0) 42%);
+}
+
+/* ---------- layout ---------- */
+#ui{position:fixed;inset:0;z-index:5;pointer-events:none}
+#ui > *{pointer-events:auto}
+
+#topbar{
+  position:absolute;top:16px;left:16px;right:16px;height:58px;
+  display:flex;align-items:center;gap:18px;padding:0 18px;
+}
+.brand{display:flex;flex-direction:column;gap:2px;min-width:0}
+.brand h1{
+  font-size:14px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  background:linear-gradient(92deg,var(--c1),#a78bfa 45%,var(--c2));
+  -webkit-background-clip:text;background-clip:text;color:transparent;white-space:nowrap;
+}
+.brand span{font-size:10.5px;color:var(--dim);letter-spacing:.06em;white-space:nowrap}
+.topspacer{flex:1}
+.chips{display:flex;gap:9px;align-items:center;flex-wrap:nowrap;overflow:hidden}
+.chip{
+  display:flex;flex-direction:column;gap:1px;padding:7px 13px;border-radius:11px;
+  background:rgba(255,255,255,.045);border:1px solid var(--stroke);white-space:nowrap;
+}
+.chip b{font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.chip i{font-style:normal;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.1em}
+
+#left{
+  position:absolute;top:90px;left:16px;bottom:126px;width:288px;
+  display:flex;flex-direction:column;gap:12px;overflow-y:auto;overflow-x:hidden;
+  padding-right:3px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.14) transparent;
+}
+#right{
+  position:absolute;top:90px;right:16px;bottom:126px;width:270px;
+  display:flex;flex-direction:column;gap:12px;overflow-y:auto;overflow-x:hidden;
+  padding-right:3px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.14) transparent;
+}
+#left::-webkit-scrollbar,#right::-webkit-scrollbar{width:5px}
+#left::-webkit-scrollbar-thumb,#right::-webkit-scrollbar-thumb{background:rgba(255,255,255,.14);border-radius:3px}
+
+/* ---------- cards ---------- */
+.card{flex:0 0 auto;overflow:hidden;transition:box-shadow .25s}
+.card-h{
+  display:flex;align-items:center;gap:8px;padding:12px 13px;cursor:pointer;
+  user-select:none;position:relative;z-index:1;
+}
+.card-h .dot{width:6px;height:6px;border-radius:50%;background:var(--c1);flex:0 0 auto;box-shadow:0 0 9px var(--c1)}
+.card-h h2{font-size:10.5px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--muted);flex:1}
+.icobtn{
+  width:22px;height:22px;border-radius:7px;border:1px solid transparent;background:transparent;
+  color:var(--dim);cursor:pointer;display:grid;place-items:center;transition:all .16s;flex:0 0 auto;
+}
+.icobtn:hover{background:rgba(255,255,255,.09);color:var(--txt);border-color:var(--stroke)}
+.icobtn svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.card.collapsed .card-b{display:none}
+.card.collapsed .chev{transform:rotate(-90deg)}
+.chev{transition:transform .2s}
+.card-b{padding:0 13px 14px;position:relative;z-index:1}
+
+/* ---------- focus (explode) overlay ---------- */
+#scrim{
+  position:fixed;inset:0;z-index:20;background:rgba(3,5,9,.55);
+  backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);
+  opacity:0;pointer-events:none;transition:opacity .3s;
+}
+#scrim.on{opacity:1;pointer-events:auto}
+.card.focused{
+  position:fixed;z-index:30;
+  top:50%;left:50%;transform:translate(-50%,-50%);
+  width:min(560px,92vw);max-height:84vh;overflow-y:auto;
+  background:var(--glass-strong);
+  border-color:var(--stroke-hi);
+  box-shadow:0 40px 90px -20px rgba(0,0,0,.9),0 0 0 1px rgba(255,255,255,.05);
+  animation:pop .28s cubic-bezier(.2,.9,.3,1);
+}
+@keyframes pop{from{opacity:0;transform:translate(-50%,-46%) scale(.96)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+.card.focused .card-b{padding:0 22px 22px}
+.card.focused .card-h{padding:18px 22px 14px}
+.card.focused .card-h h2{font-size:12px;letter-spacing:.15em;color:var(--txt)}
+.card.focused .grid2{grid-template-columns:1fr 1fr}
+.card.focused .chart{height:150px}
+.ghost{flex:0 0 auto;border-radius:var(--r);border:1px dashed var(--stroke);opacity:.35}
+
+/* ---------- controls ---------- */
+.seg{display:grid;grid-template-columns:repeat(2,1fr);gap:5px;margin-bottom:12px}
+.seg button{
+  padding:9px 6px;border-radius:10px;border:1px solid var(--stroke);
+  background:rgba(255,255,255,.03);color:var(--muted);cursor:pointer;
+  font-family:inherit;font-size:10.5px;font-weight:600;letter-spacing:.06em;
+  transition:all .18s;display:flex;flex-direction:column;align-items:center;gap:4px;
+}
+.seg button svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.seg button:hover{background:rgba(255,255,255,.07);color:var(--txt)}
+.seg button.wide{grid-column:span 2;flex-direction:row;gap:7px}
+.seg button.on{
+  background:linear-gradient(140deg,rgba(76,201,240,.22),rgba(247,37,133,.16));
+  border-color:rgba(76,201,240,.45);color:#fff;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 0 18px -6px var(--c1);
+}
+
+.row{display:flex;align-items:center;justify-content:space-between;margin:13px 0 5px}
+.row label{font-size:11px;color:var(--muted);font-weight:500}
+.row output{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--c1);font-weight:500}
+
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:2px;
+  background:rgba(255,255,255,.13);outline:none;cursor:pointer;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+  background:var(--txt);border:2px solid #0b0f16;cursor:grab;
+  box-shadow:0 0 0 1px rgba(255,255,255,.22),0 0 12px -2px var(--c1);
+}
+input[type=range]::-webkit-slider-thumb:active{cursor:grabbing;background:var(--c1)}
+input[type=range]::-moz-range-thumb{
+  width:13px;height:13px;border-radius:50%;background:var(--txt);
+  border:2px solid #0b0f16;cursor:grab;box-shadow:0 0 0 1px rgba(255,255,255,.22);
+}
+
+.pills{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+.pill{
+  padding:5px 9px;border-radius:8px;border:1px solid var(--stroke);
+  background:rgba(255,255,255,.03);color:var(--dim);cursor:pointer;
+  font-family:inherit;font-size:10px;font-weight:600;letter-spacing:.05em;transition:all .16s;
+}
+.pill:hover{color:var(--txt);background:rgba(255,255,255,.07)}
+.pill.on{background:rgba(76,201,240,.16);border-color:rgba(76,201,240,.42);color:#cdeefb}
+.pill.on[data-tone="2"]{background:rgba(247,37,133,.16);border-color:rgba(247,37,133,.42);color:#ffd0e6}
+
+.hint{font-size:10px;color:var(--dim);line-height:1.5;margin-top:9px}
+.sep{height:1px;background:var(--stroke);margin:14px 0 2px}
+
+/* ---------- charts / stats ---------- */
+.chart{width:100%;height:84px;display:block;margin-top:8px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:4px}
+.stat{padding:9px 10px;border-radius:10px;background:rgba(255,255,255,.035);border:1px solid var(--stroke)}
+.stat b{display:block;font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;letter-spacing:-.02em}
+.stat i{font-style:normal;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.09em}
+.legend{display:flex;align-items:center;gap:8px;margin-top:11px}
+.legend .bar{flex:1;height:7px;border-radius:4px;
+  background:linear-gradient(90deg,#0b1d51,#1b6ca8,#20c997,#ffd166,#f7734a,#ff2e63)}
+.legend span{font-size:9px;color:var(--dim);letter-spacing:.08em}
+
+.rank{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.rank-row{display:flex;align-items:center;gap:8px;font-size:11px}
+.rank-row .nm{flex:1;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rank-row .vl{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--c3)}
+.rank-row .tr{width:54px;height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
+.rank-row .tr i{display:block;height:100%;background:linear-gradient(90deg,var(--c1),var(--c2));border-radius:3px}
+
+/* ---------- timeline ---------- */
+#timeline{
+  position:absolute;left:16px;right:16px;bottom:16px;height:94px;
+  display:flex;align-items:center;gap:16px;padding:0 18px;
+}
+.tbtn{
+  width:38px;height:38px;border-radius:12px;border:1px solid var(--stroke);
+  background:rgba(255,255,255,.05);color:var(--txt);cursor:pointer;
+  display:grid;place-items:center;transition:all .18s;flex:0 0 auto;
+}
+.tbtn:hover{background:rgba(255,255,255,.1);border-color:var(--stroke-hi)}
+.tbtn.play{
+  background:linear-gradient(140deg,var(--c1),#7b5cf0);border-color:transparent;color:#04070d;
+  box-shadow:0 0 22px -5px var(--c1);
+}
+.tbtn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.tbtn.play svg{fill:currentColor;stroke:none}
+
+.track-wrap{flex:1;min-width:0}
+.track-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px}
+.track-top .cur{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;color:var(--txt);letter-spacing:.02em}
+.track-top .rng{font-size:10px;color:var(--dim);letter-spacing:.05em}
+#spark{width:100%;height:30px;display:block;cursor:crosshair;border-radius:5px}
+.track-labels{display:flex;justify-content:space-between;margin-top:3px}
+.track-labels span{font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace}
+
+.tgroup{display:flex;align-items:center;gap:7px;flex:0 0 auto}
+.tsel{
+  padding:8px 10px;border-radius:10px;border:1px solid var(--stroke);
+  background:rgba(255,255,255,.04);color:var(--muted);cursor:pointer;
+  font-family:inherit;font-size:10.5px;font-weight:600;letter-spacing:.05em;transition:all .16s;
+}
+.tsel:hover{color:var(--txt)}
+.tsel.on{background:rgba(76,201,240,.16);border-color:rgba(76,201,240,.42);color:#cdeefb}
+.winbox{gap:8px}
+.winbox label{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.09em}
+.winbox input[type=range]{width:78px}
+.winbox output{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--c1);min-width:38px}
+@media (max-width:1320px){ .winbox{display:none} }
+
+/* ---------- loader / tooltip ---------- */
+#boot{
+  position:fixed;inset:0;z-index:99;display:grid;place-items:center;
+  background:var(--bg);transition:opacity .5s;
+}
+#boot.gone{opacity:0;pointer-events:none}
+.boot-in{display:flex;flex-direction:column;align-items:center;gap:15px}
+.boot-in .ring{
+  width:34px;height:34px;border-radius:50%;
+  border:2px solid rgba(255,255,255,.1);border-top-color:var(--c1);
+  animation:spin .8s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.boot-in p{font-size:11px;color:var(--dim);letter-spacing:.16em;text-transform:uppercase}
+
+#tip{
+  position:fixed;z-index:40;pointer-events:none;padding:9px 12px;border-radius:10px;
+  background:var(--glass-strong);border:1px solid var(--stroke-hi);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  font-size:11px;line-height:1.55;opacity:0;transition:opacity .13s;
+  box-shadow:0 14px 34px -10px rgba(0,0,0,.8);max-width:230px;
+}
+#tip.on{opacity:1}
+
+#toast{
+  position:fixed;left:50%;bottom:124px;transform:translate(-50%,14px);z-index:60;
+  max-width:min(460px,90vw);padding:13px 17px;border-radius:13px;
+  background:rgba(28,14,20,.92);border:1px solid rgba(247,37,133,.42);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  color:#ffd9e8;font-size:12px;line-height:1.5;
+  box-shadow:0 20px 48px -14px rgba(0,0,0,.85);
+  opacity:0;pointer-events:none;transition:opacity .28s,transform .28s;
+}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+
+/* Cartel del modo Recorrido: mes grande y kilómetros, como en un timelapse. */
+#cine{
+  position:fixed;top:96px;left:50%;transform:translate(-50%,-8px);z-index:6;
+  display:none;flex-direction:column;align-items:center;gap:3px;
+  padding:13px 30px;border-radius:15px;pointer-events:none;
+  background:rgba(12,15,21,.55);border:1px solid var(--stroke);
+  backdrop-filter:blur(18px) saturate(140%);-webkit-backdrop-filter:blur(18px) saturate(140%);
+  box-shadow:var(--shadow);opacity:0;transition:opacity .3s,transform .3s;
+}
+#cine.on{display:flex;opacity:1;transform:translate(-50%,0)}
+#cine b{
+  font-size:21px;font-weight:700;letter-spacing:-.01em;text-transform:capitalize;
+  background:linear-gradient(92deg,#fff,#ffc2dd);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+#cine span{
+  font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--c2);
+  letter-spacing:.12em;text-transform:uppercase;
+}
+@media (max-width:860px){ #cine{top:84px;padding:9px 20px} #cine b{font-size:16px} }
+#tip b{font-family:'JetBrains Mono',monospace;color:var(--c1);font-weight:700}
+#tip .tl{color:var(--dim);font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;display:block;margin-bottom:3px}
+
+.maplibregl-ctrl-attrib{
+  background:rgba(5,7,11,.72)!important;color:var(--dim)!important;font-size:9.5px!important;
+  border-radius:7px 0 0 0!important;
+}
+.maplibregl-ctrl-attrib a{color:var(--muted)!important}
+.maplibregl-ctrl-bottom-right{z-index:3}
+
+@media (max-width:1180px){
+  #right{display:none}
+  #left{width:250px}
+}
+@media (max-width:860px){
+  #left{display:none}
+  .chips .chip:nth-child(n+3){display:none}
+}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+<div id="ambience"></div>
+<div id="scrim"></div>
+<div id="tip"></div>
+<div id="toast"></div>
+<div id="cine"><b id="cineMonth">—</b><span id="cineKm">—</span></div>
+
+<div id="ui">
+
+  <!-- ================= TOP BAR ================= -->
+  <div id="topbar" class="glass">
+    <div class="brand">
+      <h1>Berlin · Movement Atlas</h1>
+      <span id="brandsub">—</span>
+    </div>
+    <div class="topspacer"></div>
+    <div class="chips">
+      <div class="chip"><b id="kPts">—</b><i>puntos vis.</i></div>
+      <div class="chip"><b id="kDays">—</b><i>días</i></div>
+      <div class="chip"><b id="kHrs">—</b><i>horas reg.</i></div>
+      <div class="chip"><b id="kCells">—</b><i>celdas</i></div>
+    </div>
+  </div>
+
+  <!-- ================= LEFT ================= -->
+  <div id="left">
+
+    <div class="card glass" id="c-view">
+      <div class="card-h">
+        <span class="dot"></span><h2>Vista</h2>
+        <button class="icobtn expand" title="Expandir"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+        <button class="icobtn chev"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      </div>
+      <div class="card-b">
+        <div class="seg" id="segMode">
+          <button data-m="heat" class="on"><svg viewBox="0 0 24 24"><path d="M12 2s4 4.5 4 8a4 4 0 0 1-8 0c0-3.5 4-8 4-8z"/><path d="M5 16c0 3.9 3.1 6 7 6s7-2.1 7-6"/></svg>Heatmap</button>
+          <button data-m="hex"><svg viewBox="0 0 24 24"><path d="M12 2l8 4.6v9.2L12 20l-8-4.2V6.6z"/><path d="M12 11l8-4.4M12 11v9M12 11L4 6.6"/></svg>Hex 3D</button>
+          <button data-m="points"><svg viewBox="0 0 24 24"><circle cx="7" cy="8" r="1.6"/><circle cx="16" cy="6" r="1.6"/><circle cx="12" cy="14" r="1.6"/><circle cx="18" cy="16" r="1.6"/><circle cx="6" cy="17" r="1.6"/></svg>Puntos</button>
+          <button data-m="grid"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5"/><rect x="13.5" y="3" width="7.5" height="7.5"/><rect x="3" y="13.5" width="7.5" height="7.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5"/></svg>Grilla 3D</button>
+          <button data-m="trips" class="wide"><svg viewBox="0 0 24 24"><path d="M4 19c3-1 3.5-6 6-6s3 4 5 4 2.5-7 5-9"/><circle cx="4" cy="19" r="1.4"/><circle cx="20" cy="8" r="1.4"/></svg>Recorrido</button>
+        </div>
+
+        <div id="pHeat">
+          <div class="row"><label>Radio</label><output id="oRad">28 px</output></div>
+          <input type="range" id="sRad" min="6" max="80" value="28">
+          <div class="row"><label>Intensidad</label><output id="oInt">1.6×</output></div>
+          <input type="range" id="sInt" min="2" max="60" value="16">
+          <div class="row"><label>Umbral</label><output id="oThr">0.05</output></div>
+          <input type="range" id="sThr" min="1" max="40" value="5">
+        </div>
+
+        <div id="pHex" style="display:none">
+          <div class="row"><label>Tamaño de celda</label><output id="oCell">120 m</output></div>
+          <input type="range" id="sCell" min="30" max="600" step="10" value="120">
+          <div class="row"><label>Altura</label><output id="oElev">0.8×</output></div>
+          <input type="range" id="sElev" min="1" max="40" value="8">
+          <div class="row"><label>Cobertura</label><output id="oCov">0.88</output></div>
+          <input type="range" id="sCov" min="20" max="100" value="88">
+        </div>
+
+        <div id="pTrips" style="display:none">
+          <div class="row"><label>Estela</label><output id="oTrail">6 d</output></div>
+          <input type="range" id="sTrail" min="1" max="120" value="6">
+          <div class="row"><label>Grosor</label><output id="oTw">2.2 px</output></div>
+          <input type="range" id="sTw" min="5" max="80" value="22">
+          <div class="pills" style="margin-top:10px">
+            <button class="pill" id="tgFull">Rastro completo</button>
+          </div>
+          <div class="hint">Los trayectos se cortan tras <b style="color:var(--muted)">75 min</b> sin señal o ante saltos de más de <b style="color:var(--muted)">5 km</b>, que no son recorrido sino ruido de GPS.</div>
+        </div>
+
+        <div id="pPts" style="display:none">
+          <div class="row"><label>Tamaño</label><output id="oPsz">2.0 px</output></div>
+          <input type="range" id="sPsz" min="5" max="60" value="20">
+        </div>
+
+        <div class="row"><label>Opacidad</label><output id="oOpa">0.88</output></div>
+        <input type="range" id="sOpa" min="10" max="100" value="88">
+
+        <div class="sep"></div>
+        <div class="row" style="margin-top:2px"><label>Escala de densidad</label><output id="oCmp">log</output></div>
+        <div class="pills" id="pillCmp">
+          <button class="pill" data-c="lineal">Lineal</button>
+          <button class="pill" data-c="sqrt">Raíz</button>
+          <button class="pill on" data-c="log">Log</button>
+        </div>
+        <div class="sep"></div>
+        <div class="pills">
+          <button class="pill on" id="tgPlaces">Lugares</button>
+          <button class="pill on" id="tgWeight">Peso × estadía</button>
+          <button class="pill" id="tgPitch">Cámara 3D</button>
+        </div>
+        <div class="legend"><span>BAJO</span><div class="bar"></div><span>ALTO</span></div>
+      </div>
+    </div>
+
+    <div class="card glass" id="c-filters">
+      <div class="card-h">
+        <span class="dot" style="background:var(--c2);box-shadow:0 0 9px var(--c2)"></span><h2>Filtros</h2>
+        <button class="icobtn expand" title="Expandir"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+        <button class="icobtn chev"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      </div>
+      <div class="card-b">
+        <div class="row"><label>Hora del día</label><output id="oHr">00–23</output></div>
+        <input type="range" id="sHrA" min="0" max="23" value="0">
+        <input type="range" id="sHrB" min="0" max="23" value="23" style="margin-top:6px">
+
+        <div class="row"><label>Día de la semana</label><output id="oDw">todos</output></div>
+        <div class="pills" id="pillDow"></div>
+
+        <div class="row"><label>Fuente del dato</label><output id="oSrc">todas</output></div>
+        <div class="pills" id="pillSrc"></div>
+
+        <div class="hint">Los <b style="color:var(--muted)">visits</b> traen duración de estadía: con «Peso × estadía» activo, 8 h en un lugar pesan más que pasar caminando.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ================= RIGHT ================= -->
+  <div id="right">
+
+    <div class="card glass" id="c-stats">
+      <div class="card-h">
+        <span class="dot" style="background:var(--c3);box-shadow:0 0 9px var(--c3)"></span><h2>Resumen</h2>
+        <button class="icobtn expand" title="Expandir"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+        <button class="icobtn chev"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      </div>
+      <div class="card-b">
+        <div class="grid2">
+          <div class="stat"><b id="sVis">—</b><i>visitas</i></div>
+          <div class="stat"><b id="sMov">—</b><i>tramos</i></div>
+          <div class="stat"><b id="sTop">—</b><i>hora pico</i></div>
+          <div class="stat"><b id="sArea">—</b><i>km² cubiertos</i></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card glass" id="c-hours">
+      <div class="card-h">
+        <span class="dot" style="background:var(--ok);box-shadow:0 0 9px var(--ok)"></span><h2>Ritmo diario</h2>
+        <button class="icobtn expand" title="Expandir"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+        <button class="icobtn chev"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      </div>
+      <div class="card-b">
+        <canvas class="chart" id="chHour"></canvas>
+        <div class="track-labels"><span>00h</span><span>12h</span><span>23h</span></div>
+        <div class="sep"></div>
+        <canvas class="chart" id="chDow" style="height:58px"></canvas>
+        <div class="track-labels" id="dowLabels"></div>
+      </div>
+    </div>
+
+    <div class="card glass" id="c-zones">
+      <div class="card-h">
+        <span class="dot" style="background:#a78bfa;box-shadow:0 0 9px #a78bfa"></span><h2>Zonas top</h2>
+        <button class="icobtn expand" title="Expandir"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+        <button class="icobtn chev"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      </div>
+      <div class="card-b">
+        <div class="rank" id="rankZones"></div>
+        <div class="hint">Celdas de ~250 m con más registros en el rango filtrado. Clic para centrar el mapa.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ================= TIMELINE ================= -->
+  <div id="timeline" class="glass">
+    <button class="tbtn play" id="btnPlay" title="Reproducir">
+      <svg id="icoPlay" viewBox="0 0 24 24"><path d="M7 4l13 8-13 8z"/></svg>
+    </button>
+    <button class="tbtn" id="btnReset" title="Reiniciar rango">
+      <svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+    </button>
+
+    <div class="track-wrap">
+      <div class="track-top">
+        <span class="cur" id="tCur">—</span>
+        <span class="rng" id="tRng">—</span>
+      </div>
+      <canvas id="spark"></canvas>
+      <div class="track-labels"><span id="tA">—</span><span id="tB">—</span></div>
+    </div>
+
+    <div class="tgroup">
+      <button class="tsel on" id="mWindow">Ventana</button>
+      <button class="tsel" id="mCumul">Acumulado</button>
+    </div>
+    <div class="tgroup winbox">
+      <label for="sWin">Ancho</label>
+      <input type="range" id="sWin" min="14" max="365" step="1" value="90">
+      <output id="oWin">90 d</output>
+    </div>
+    <div class="tgroup">
+      <button class="tsel" data-sp="0.5">0.5×</button>
+      <button class="tsel on" data-sp="1">1×</button>
+      <button class="tsel" data-sp="3">3×</button>
+    </div>
+  </div>
+
+</div>
+
+<div id="boot"><div class="boot-in"><div class="ring"></div><p>Cargando trayectorias</p></div></div>
+
+<script src="https://unpkg.com/maplibre-gl@5.6.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/deck.gl@9.1.14/dist.min.js"></script>
+<script id="payload" type="application/json">__PAYLOAD__</script>
+<script>
+"use strict";
+
+/* ======================================================================
+   DATOS
+   ====================================================================== */
+const D = JSON.parse(document.getElementById('payload').textContent);
+const N   = D.n;
+const XS  = Float64Array.from(D.x);
+const YS  = Float64Array.from(D.y);
+const DAY = Uint16Array.from(D.day);
+const HR  = Uint8Array.from(D.hour);
+const DW  = Uint8Array.from(D.dow);
+const WT  = Float32Array.from(D.w);
+const SRC = Uint8Array.from(D.src);
+const TMIN = Int32Array.from(D.tmin);     // minutos desde epoch (modo Recorrido)
+const EPOCH = new Date(D.epoch + 'T00:00:00');
+const NDAYS = D.nDays;
+
+const SRC_NAMES = ['Recorrido', 'Actividad', 'Visita', 'GPS crudo'];
+const DOW_NAMES = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+const DOW_FULL  = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
+
+const HEAT_COLORS = [
+  [11, 29, 81], [27, 108, 168], [32, 201, 151],
+  [255, 209, 102], [247, 115, 74], [255, 46, 99]
+];
+
+/*
+ * Rampa para las vistas 3D. Se usa con colorScaleType:'quantile', que reparte
+ * un color por cada 1/N de las celdas: con 14 pasos y sólo 3 cálidos, el rojo
+ * queda reservado al ~7% más denso en vez de al 17% (que es lo que pasaba con
+ * la rampa de 6 y hacía que el centro entero gritara en rosa).
+ */
+const RAMP_3D = [
+  [9, 24, 66], [13, 40, 95], [18, 58, 124], [24, 82, 150], [28, 104, 168],
+  [26, 132, 170], [30, 160, 165], [32, 186, 152], [86, 199, 133],
+  [150, 210, 112], [214, 214, 104], [255, 196, 96], [247, 130, 72], [255, 46, 99]
+];
+
+function dayToDate(d){ const t = new Date(EPOCH); t.setDate(t.getDate() + d); return t; }
+function fmtDate(dt){ return dt.toLocaleDateString('es-ES',{day:'2-digit',month:'short',year:'numeric'}); }
+function fmtShort(dt){ return dt.toLocaleDateString('es-ES',{month:'short',year:'2-digit'}); }
+function nfmt(v){ return v >= 1000 ? v.toLocaleString('es-ES') : String(v); }
+
+/* ======================================================================
+   ESTADO
+   ====================================================================== */
+const S = {
+  mode:'heat',
+  dayA:0, dayB:NDAYS-1,
+  hrA:0, hrB:23,
+  dows:new Set([0,1,2,3,4,5,6]),
+  srcs:new Set([0,1,2,3]),
+  radius:28, intensity:1.6, threshold:0.05, opacity:0.88,
+  cell:120, elev:0.8, coverage:0.88, ptSize:2.0,
+  compress:'log',                 // lineal | sqrt | log
+  trailDays:6, tripWidth:2.2, tripFull:false,
+  places:true, weighted:true, pitch3d:false,
+  playing:false, animMode:'window', windowDays:90, speed:1,
+  cursorF:NDAYS-1,          // cursor fraccional: avanza sub-día, no a saltos
+  scope:'all'               // 'all' = rango completo | 'anim' = ventana del cursor
+};
+
+const DAYS_PER_SEC = 30;    // velocidad base de la animación a 1x
+
+/* índices visibles (array plano reutilizado por todas las capas) */
+let VIS = [];
+let FADE = [];                    // peso temporal (0..1) paralelo a VIS
+let NORM = 1;                     // días efectivos visibles -> densidad por día
+let HEAT = [];                    // celdas finas pre-agregadas para el heatmap
+let statHour = new Float64Array(24);
+let statDow  = new Float64Array(7);
+let statVisits = 0, statMoves = 0, statHours = 0;
+let zoneTop = [], zoneCount = 0;
+
+/*
+ * Compresión del rango dinámico.
+ *
+ * Con agregación SUM lineal, la celda de casa acumula miles de registros
+ * mientras una calle cualquiera acumula 2 o 3. deck.gl escala el color contra
+ * el máximo, así que TODO menos casa cae por debajo del umbral y el mapa
+ * aparece vacío. Comprimir el peso por celda (log o raíz) baja esa relación de
+ * ~1600:1 a ~8:1 y el mapa vuelve a leerse.
+ */
+/* Escala que lleva la densidad diaria a un rango donde el logaritmo
+   comprime de verdad. Sin ella, n/NORM cae por debajo de 1 y log1p(x)≈x: la
+   compresión desaparece y el mapa vuelve a quedar dominado por la celda de
+   casa, con todo lo demás bajo el umbral. */
+const DENS_K = 1000;
+
+function squash(v){
+  if (S.compress === 'log')  return Math.log1p(v);
+  if (S.compress === 'sqrt') return Math.sqrt(v);
+  return v;
+}
+
+/* claves de grilla enteras (evitan concatenar strings en el bucle caliente) */
+const LAT0 = D.bbox[0], LON0 = D.bbox[1];
+const FINE_LAT = 1e-4, FINE_LON = 1e-4;       // ~11 m x ~6.8 m a 52.5°N
+const ZONE_LAT = 2.25e-3, ZONE_LON = 3.68e-3; // ~250 m x ~250 m
+
+/* primer índice con DAY[i] >= d. DAY viene ordenado desde el export, así que
+   durante la animación sólo recorremos la ventana y no los 74k puntos. */
+function lowerBound(d){
+  let lo = 0, hi = N;
+  while (lo < hi){ const m = (lo + hi) >> 1; if (DAY[m] < d) lo = m + 1; else hi = m; }
+  return lo;
+}
+
+function smoothstep(t){ t = t < 0 ? 0 : t > 1 ? 1 : t; return t * t * (3 - 2 * t); }
+
+/*
+ * Peso temporal de un día, entre 0 y 1.
+ *
+ * En vez de incluir/excluir de golpe (que es lo que producía el salteo), cada
+ * día entra con un fade-in y sale con un fade-out suaves. Combinado con el
+ * cursor fraccional, un punto aparece y desaparece progresivamente en lugar de
+ * parpadear.
+ */
+function fadeFor(d){
+  if (S.scope === 'all') return 1;
+  const cur = S.cursorF;
+  if (d > cur) return 0;
+  const age = cur - d;
+  const cumul = S.animMode === 'cumulative';
+  const W = cumul ? cur + 1 : S.windowDays;
+  if (age > W) return 0;
+  /* El fade-in sólo tiene sentido mientras corre la animación: en pausa o
+     tras un scrub el borde nuevo es todo lo que el usuario quiere ver, y
+     atenuarlo dejaba la ventana en peso ~0 (mapa vacío al pulsar play). */
+  const inSpan = S.playing ? (cumul ? 3 : Math.max(0.5, W * 0.07)) : 0;
+  const fin  = inSpan > 0 ? smoothstep(age / inSpan) : 1;
+  const fout = cumul ? 1 : smoothstep((1 - age / W) / 0.38);
+  return fin * fout;
+}
+
+function applyFilters(){
+  VIS = []; FADE = [];
+  statHour.fill(0); statDow.fill(0);
+  statVisits = 0; statMoves = 0; statHours = 0;
+  const {hrA, hrB, dows, srcs} = S;
+
+  let dLo, dHi;
+  if (S.scope === 'all'){ dLo = 0; dHi = NDAYS - 1; }
+  else if (S.animMode === 'cumulative'){ dLo = 0; dHi = Math.floor(S.cursorF); }
+  else { dLo = Math.max(0, Math.ceil(S.cursorF - S.windowDays)); dHi = Math.floor(S.cursorF); }
+  dHi = Math.max(dLo, Math.min(NDAYS - 1, dHi));
+  S.dayA = dLo; S.dayB = dHi;
+
+  /* Días efectivos visibles (integral del fade). Normalizar por este valor
+     convierte los conteos en "registros por día", que es lo que hace que una
+     ventana de 90 días y el rango completo se puedan pintar con la misma
+     escala en vez de saltar de brillo en cada cuadro. */
+  let spanEff = 0;
+  for (let d = dLo; d <= dHi; d++) spanEff += fadeFor(d);
+  NORM = Math.max(1, spanEff);
+
+  const i0 = lowerBound(dLo), i1 = lowerBound(dHi + 1);
+  const fine = new Map();   // celdas ~11 m -> heatmap y vistas 3D
+  const zones = new Map();  // celdas ~250 m -> ranking y superficie
+
+  for (let i = i0; i < i1; i++){
+    const h = HR[i];
+    if (h < hrA || h > hrB) continue;
+    if (!dows.has(DW[i])) continue;
+    const sc = SRC[i];
+    if (!srcs.has(sc)) continue;
+    const f = fadeFor(DAY[i]);
+    if (f <= 0.002) continue;
+
+    VIS.push(i); FADE.push(f);
+    const y = YS[i], x = XS[i];
+    const raw = S.weighted ? WT[i] : 1;   // estadísticas: sin atenuar
+    const wgt = raw * f;                  // render: atenuado por el fade
+    statHour[h] += raw; statDow[DW[i]] += raw;
+    if (sc === 2){ statVisits++; statHours += WT[i]; } else { statMoves++; }
+
+    const fk = ((y - LAT0) / FINE_LAT | 0) * 100000 + ((x - LON0) / FINE_LON | 0);
+    const fc = fine.get(fk);
+    if (fc) fc.n += wgt; else fine.set(fk, {n:wgt, x, y});
+
+    const zk = ((y - LAT0) / ZONE_LAT | 0) * 10000 + ((x - LON0) / ZONE_LON | 0);
+    const zc = zones.get(zk);
+    if (zc) zc.n += wgt; else zones.set(zk, {n:wgt, x, y});
+  }
+  HEAT = [...fine.values()];
+  zoneTop = [...zones.values()].sort((a, b) => b.n - a.n).slice(0, 6);
+  zoneCount = zones.size;
+}
+
+/* ----------------------------------------------------------------------
+   Modo Recorrido: reconstruir los trayectos
+   ----------------------------------------------------------------------
+   Los puntos vienen ordenados por tiempo. Se encadenan en trayectos y se
+   corta cuando hay un hueco temporal grande o un salto imposible (un GPS que
+   aparece a 5 km sin nada en el medio no es un tramo recorrido, es ruido o un
+   vuelo). Las visitas quedan fuera: son estadías, no desplazamiento.
+---------------------------------------------------------------------- */
+const GAP_MIN = 75;        // minutos sin señal que cortan el trayecto
+const JUMP_KM = 5;         // salto entre puntos consecutivos que lo corta
+
+let TRIPS = [], tripKm = 0, tripsKey = '';
+
+function haversineKm(y1, x1, y2, x2){
+  const R = 6371, rad = Math.PI / 180;
+  const dLat = (y2 - y1) * rad, dLon = (x2 - x1) * rad;
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(y1 * rad) * Math.cos(y2 * rad) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+function buildTrips(){
+  // sólo se rehace si cambió algún filtro no temporal
+  const key = [...S.dows].sort().join('') + '|' + [...S.srcs].sort().join('') +
+              '|' + S.hrA + '-' + S.hrB;
+  if (key === tripsKey) return;
+  tripsKey = key;
+
+  TRIPS = []; tripKm = 0;
+  let path = [], stamps = [];
+  const flush = () => {
+    if (path.length > 1) TRIPS.push({path, timestamps:stamps});
+    path = []; stamps = [];
+  };
+  for (let i = 0; i < N; i++){
+    const sc = SRC[i];
+    if (sc === 2) { flush(); continue; }          // visita: corta el trayecto
+    if (!S.srcs.has(sc)) continue;
+    const h = HR[i];
+    if (h < S.hrA || h > S.hrB) { flush(); continue; }
+    if (!S.dows.has(DW[i])) { flush(); continue; }
+
+    const y = YS[i], x = XS[i], t = TMIN[i];
+    if (path.length){
+      const li = path.length - 1;
+      const dt = t - stamps[li];
+      const dk = haversineKm(path[li][1], path[li][0], y, x);
+      if (dt > GAP_MIN || dk > JUMP_KM){ flush(); }
+      else tripKm += dk;
+    }
+    path.push([x, y]); stamps.push(t);
+  }
+  flush();
+}
+
+/* Kilómetros del trayecto ya dibujado (hasta el cursor, o todos si el rango
+   es completo). Se recorre sólo lo necesario porque los timestamps crecen. */
+function tripKmUpTo(){
+  if (!TRIPS.length) return 0;
+  if (S.scope === 'all') return tripKm;
+  const limit = S.cursorF * 1440;
+  let km = 0;
+  for (const t of TRIPS){
+    const st = t.timestamps;
+    if (st[0] > limit) continue;
+    const pa = t.path;
+    for (let i = 1; i < pa.length; i++){
+      if (st[i] > limit) break;
+      km += haversineKm(pa[i-1][1], pa[i-1][0], pa[i][1], pa[i][0]);
+    }
+  }
+  return km;
+}
+
+/* ----------------------------------------------------------------------
+   Escala congelada para Hex 3D / Grilla 3D
+   ----------------------------------------------------------------------
+   El parpadeo al reproducir venía de que colorScaleType:'quantile' y el
+   dominio de elevación se recalculan contra los datos de CADA cuadro: los
+   mismos hexágonos cambiaban de color y de altura de un frame al siguiente, y
+   además volvía imposible comparar un mes con otro.
+   Al arrancar la animación muestreamos varias posiciones del cursor, juntamos
+   la distribución de densidades y congelamos [cmax, emax]. A partir de ahí la
+   escala es la misma en todos los cuadros.
+---------------------------------------------------------------------- */
+let SCALE = null;
+
+function aggForScale(side){
+  // agrega las celdas finas en celdas de `side` metros, como hacen Hex/Grid
+  const dLat = side / 111320, dLon = side / (111320 * Math.cos(52.5 * Math.PI / 180));
+  const m = new Map();
+  for (const c of HEAT){
+    const k = (((c.y - LAT0) / dLat) | 0) * 100000 + (((c.x - LON0) / dLon) | 0);
+    m.set(k, (m.get(k) || 0) + squash(c.n / NORM * DENS_K));
+  }
+  return [...m.values()];
+}
+
+function pct(sorted, q){
+  if (!sorted.length) return 1;
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.round((sorted.length - 1) * q)))];
+}
+
+function lockScale(){
+  // el lado equivalente en área a un hexágono de radio r es r*sqrt(2.598)
+  const side = S.mode === 'hex' ? S.cell * 1.612 : S.cell;
+  const saveCur = S.cursorF, saveScope = S.scope;
+  const vals = [];
+  S.scope = 'anim';
+  for (let k = 0; k < 6; k++){
+    S.cursorF = S.windowDays + (NDAYS - 1 - S.windowDays) * (k / 5);
+    applyFilters();
+    // push(...array) con muchos miles de elementos puede desbordar la pila
+    for (const v of aggForScale(side)) vals.push(v);
+  }
+  S.cursorF = saveCur; S.scope = saveScope;
+  applyFilters();
+  vals.sort((a, b) => a - b);
+  SCALE = {cmax: Math.max(1e-6, pct(vals, 0.88)), emax: Math.max(1e-6, pct(vals, 0.99))};
+}
+
+/* ======================================================================
+   MAPA BASE
+   ======================================================================
+   Historial de decisiones, para que no se repita:
+     1. CartoDB dark_matter -> ahora exige API key y estampa "API KEY REQUIRED"
+        sobre cada tile.
+     2. tile.openstreetmap.org -> 403 "Access blocked". Los servidores de OSM
+        los mantienen voluntarios y su política de uso no contempla una app que
+        al animar pide cientos de tiles por minuto; además, abierto por file://
+        el navegador no manda Referer y el bloqueo es inmediato.
+     3. OpenFreeMap -> tiles vectoriales, sin API key, sin registro y sin
+        límite; el proyecto existe para este caso. Nítido en pantallas HiDPI y
+        con los colores controlables desde el estilo, sin filtros CSS.
+
+   El estilo se descarga y se pasa ya resuelto como OBJETO. Pasarle la URL a
+   MapLibre deja a deck.gl enganchado a un mapa todavía sin estilo: el overlay
+   procesa las capas una sola vez (o ninguna) y después queda congelado, con
+   los layers en props y el layerManager sin actualizar. Con el estilo resuelto
+   de antemano el mapa nace completo y el overlay se comporta con normalidad.
+   ====================================================================== */
+const BASEMAP = 'https://tiles.openfreemap.org/styles/dark';
+
+/* Estilo mínimo de respaldo, por si el proveedor no responde: sin él la app
+   arrancaría con un lienzo negro y sin explicación. */
+const FALLBACK_STYLE = {
+  version:8, sources:{},
+  layers:[{id:'bg', type:'background', paint:{'background-color':'#0b0e14'}}]
+};
+
+function toGrey(c){
+  if (typeof c !== 'string') return null;            // expresiones: se dejan
+  const m = c.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+))?\s*\)/);
+  if (!m) return null;
+  const r = +m[1], g = +m[2], b = +m[3], a = m[4] === undefined ? 1 : +m[4];
+  const y = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
+  return `rgba(${y},${y},${y},${a})`;
+}
+
+/* El estilo ya es casi neutro; esto lo lleva a gris puro para que el único
+   color del mapa venga del heatmap. Se hace sobre el JSON antes de construir
+   el mapa: más barato y más fiable que ~300 llamadas a setPaintProperty. */
+function neutraliseStyle(style){
+  for (const layer of style.layers || []){
+    if (!layer.paint) continue;
+    for (const k of Object.keys(layer.paint)){
+      if (!/color/i.test(k)) continue;
+      const grey = toGrey(layer.paint[k]);
+      if (grey) layer.paint[k] = grey;
+    }
+  }
+  return style;
+}
+
+let map = null, overlay = null;
+let lastRenderT = performance.now();
+
+/* Perder el contexto WebGL deja exactamente el cuadro que uno menos quiere:
+   el reloj corriendo y el mapa quieto. Si pasa, lo decimos y nos recuperamos. */
+function watchContext(canvas, who){
+  if (!canvas) return;
+  canvas.addEventListener('webglcontextlost', ev => {
+    ev.preventDefault();
+    stop();
+    toast('Se perdió el contexto gráfico (' + who + '). Reintentando…');
+  });
+  canvas.addEventListener('webglcontextrestored', () => {
+    toast('Contexto gráfico restaurado.', 3000);
+    SCALE = null;
+    refresh();
+  });
+}
+
+async function boot(){
+  let style;
+  try {
+    const res = await fetch(BASEMAP);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    style = neutraliseStyle(await res.json());
+  } catch (err){
+    console.error('[basemap]', err);
+    style = FALLBACK_STYLE;
+    toast('No se pudo cargar el mapa base (' + err.message + '). ' +
+          'Los datos se muestran igual, sin calles de fondo.', 9000);
+  }
+
+  map = new maplibregl.Map({
+    container:'map',
+    style,
+    center:[D.center[1], D.center[0]],
+    zoom:12.4, pitch:0, bearing:0,
+    maxBounds:[[D.bbox[1]-0.35, D.bbox[0]-0.25],[D.bbox[3]+0.35, D.bbox[2]+0.25]],
+    attributionControl:{compact:true}
+  });
+
+  overlay = new deck.MapboxOverlay({
+    interleaved:false,
+    layers:[],
+    onAfterRender: () => { lastRenderT = performance.now(); }
+  });
+  map.addControl(overlay);
+
+  map.on('error', e => {
+    const msg = (e && e.error && e.error.message) || '';
+    if (/403|blocked|forbidden/i.test(msg)) toast('El proveedor de mapas rechazó la petición.');
+  });
+
+  map.on('load', () => {
+    watchContext(map.getCanvas(), 'mapa');
+    watchContext(overlay._deck && overlay._deck.canvas, 'capas');
+    refresh();
+    setTimeout(() => document.getElementById('boot').classList.add('gone'), 260);
+  });
+}
+
+/* ======================================================================
+   CAPAS
+   ====================================================================== */
+/* Aviso visible. Un fallo silencioso que deja el botón en "reproduciendo"
+   mientras el mapa no cambia es peor que el fallo en sí. */
+let toastT = null;
+function toast(msg, ms = 6000){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('on');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.classList.remove('on'), ms);
+}
+
+/* Ejecuta algo pesado sin que una excepción deje la UI mintiendo. */
+function safe(fn, label){
+  try { return fn(); }
+  catch (err){
+    console.error('[' + label + ']', err);
+    toast('Falló ' + label + ': ' + err.message);
+    return null;
+  }
+}
+
+const tip = document.getElementById('tip');
+function showTip(info, html){
+  if (!info || !info.picked){ tip.classList.remove('on'); return; }
+  tip.innerHTML = html;
+  tip.style.left = Math.min(info.x + 16, innerWidth - 250) + 'px';
+  tip.style.top  = Math.min(info.y + 16, innerHeight - 110) + 'px';
+  tip.classList.add('on');
+}
+
+function buildLayers(){
+  const L = [];
+  const getPos = i => [XS[i], YS[i]];
+  const getW   = i => (S.weighted ? WT[i] : 1);
+
+  if (S.mode === 'heat'){
+    // Alimentado con celdas pre-agregadas y comprimidas, no con puntos crudos:
+    // ver squash() para el porqué.
+    L.push(new deck.HeatmapLayer({
+      id:'heat', data:HEAT,
+      getPosition:c => [c.x, c.y],
+      getWeight:c => squash(c.n / NORM * DENS_K),
+      radiusPixels:S.radius,
+      intensity:S.intensity,
+      threshold:S.threshold,
+      opacity:S.opacity,
+      colorRange:HEAT_COLORS,
+      aggregation:'SUM',
+      updateTriggers:{getWeight:[S.compress, S.weighted, NORM]}
+    }));
+  }
+
+  if (S.mode === 'hex' || S.mode === 'grid'){
+    /*
+     * Igual que el heatmap, estas capas consumen las celdas ya agregadas y
+     * comprimidas, no los puntos crudos. Probado contra las alternativas:
+     *   - elevationScaleType:'quantile' aplana la jerarquía (todo mide igual:
+     *     un bosque de columnas ilegible);
+     *   - colorScaleType:'quantize' sobre los logs deja casi todo en azul
+     *     porque la suma de logs del núcleo sigue dominando.
+     * quantile en color + linear en elevación sobre datos comprimidos es la
+     * única combinación que da silueta urbana Y discriminación de color.
+     */
+    const cellW = c => squash(c.n / NORM * DENS_K);
+    /* Con SCALE congelada (durante la animación) usamos dominios fijos, que es
+       lo que elimina el parpadeo. En la vista estática seguimos con quantile,
+       que reparte mejor la paleta cuando no hay que comparar entre cuadros. */
+    const scaled = SCALE
+      ? {colorScaleType:'quantize', colorDomain:[0, SCALE.cmax],
+         elevationScaleType:'linear', elevationDomain:[0, SCALE.emax]}
+      : {colorScaleType:'quantile', elevationScaleType:'linear'};
+    const common = {
+      data:HEAT,
+      getPosition:c => [c.x, c.y],
+      getColorWeight:cellW, getElevationWeight:cellW,
+      colorAggregation:'SUM', elevationAggregation:'SUM',
+      ...scaled,
+      coverage:S.coverage,
+      extruded:true,
+      elevationScale:S.elev,
+      colorRange:RAMP_3D,
+      opacity:S.opacity,
+      material:{ambient:0.58, diffuse:0.62, shininess:48, specularColor:[110,150,190]},
+      pickable:true,
+      transitions:{elevationScale:{duration:260}},
+      updateTriggers:{
+        getColorWeight:[S.compress, S.weighted, NORM],
+        getElevationWeight:[S.compress, S.weighted, NORM]
+      }
+    };
+    const hover = label => info => {
+      let n = 0;
+      if (info.object) for (const c of info.object.points){
+        const cell = c.source || c;
+        n += cell.n;
+      }
+      showTip(info, info.object
+        ? `<span class="tl">${label} de ${S.cell} m</span><b>${nfmt(Math.round(n))}</b> registros`
+        : '');
+    };
+
+    L.push(S.mode === 'hex'
+      ? new deck.HexagonLayer({id:'hex', radius:S.cell, onHover:hover('Hexágono'), ...common})
+      : new deck.GridLayer({id:'grid', cellSize:S.cell, onHover:hover('Celda'), ...common}));
+  }
+
+  if (S.mode === 'points'){
+    L.push(new deck.ScatterplotLayer({
+      id:'pts', data:VIS,
+      getPosition:getPos,
+      getRadius:i => (SRC[i] === 2 ? S.ptSize * 2.4 : S.ptSize),
+      radiusUnits:'pixels',
+      radiusMinPixels:0.6,
+      getFillColor:(i, {index}) => {
+        const s = SRC[i], f = FADE[index] ?? 1;
+        if (s === 2) return [255, 209, 102, 225 * f];
+        if (s === 1) return [247, 37, 133, 165 * f];
+        if (s === 3) return [32, 201, 151, 150 * f];
+        return [76, 201, 240, 130 * f];
+      },
+      opacity:S.opacity,
+      pickable:true,
+      onHover:info => showTip(info, info.object !== undefined && info.index >= 0
+        ? (()=>{ const i = VIS[info.index];
+            return `<span class="tl">${SRC_NAMES[SRC[i]]}</span>`
+              + `${fmtDate(dayToDate(DAY[i]))} · ${String(HR[i]).padStart(2,'0')}h<br>`
+              + `${DOW_FULL[DW[i]]}`
+              + (SRC[i]===2 ? `<br><b>${WT[i].toFixed(1)} h</b> de estadía` : ''); })()
+        : ''),
+      updateTriggers:{getRadius:[S.ptSize], getFillColor:[S.cursorF, S.scope]}
+    }));
+  }
+
+  if (S.mode === 'trips'){
+    buildTrips();
+    // currentTime y trailLength van en minutos, igual que los timestamps
+    const now = (S.scope === 'all' ? NDAYS - 1 : S.cursorF) * 1440;
+    // En vista estática se ve el recorrido completo; la estela que se
+    // desvanece sólo tiene sentido con el cursor en movimiento.
+    const whole = S.tripFull || S.scope === 'all';
+    const trail = whole ? now + 1440 : S.trailDays * 1440;
+    L.push(new deck.TripsLayer({
+      id:'trips', data:TRIPS,
+      getPath:d => d.path,
+      getTimestamps:d => d.timestamps,
+      getColor:[247, 37, 133],
+      /* Tres años de trayectos superpuestos saturan en una mancha sólida. Con
+         el recorrido entero a la vista se baja opacidad y grosor para que la
+         superposición se lea como densidad (las calles más usadas brillan);
+         durante la animación la estela vuelve a ser opaca y gruesa. */
+      opacity: whole ? 0.13 : S.opacity,
+      widthMinPixels: whole ? Math.min(1, S.tripWidth) : S.tripWidth,
+      jointRounded:true, capRounded:true,
+      fadeTrail:!whole,
+      trailLength:trail,
+      currentTime:now
+    }));
+  }
+
+  if (S.places && D.places.length){
+    L.push(new deck.ScatterplotLayer({
+      id:'places', data:D.places,
+      getPosition:p => [p.lon, p.lat],
+      getRadius:p => (p.label === 'HOME' || p.label === 'WORK') ? 13 : 7,
+      radiusUnits:'pixels',
+      stroked:true, filled:true, lineWidthUnits:'pixels', getLineWidth:1.6,
+      getFillColor:p => p.label === 'HOME' ? [32,201,151,55]
+                     : p.label === 'WORK' ? [255,209,102,55] : [255,255,255,28],
+      getLineColor:p => p.label === 'HOME' ? [32,201,151,235]
+                     : p.label === 'WORK' ? [255,209,102,235] : [190,205,220,140],
+      pickable:true,
+      onHover:info => showTip(info, info.object
+        ? `<span class="tl">Lugar frecuente</span><b>${info.object.label === 'HOME' ? 'Casa' : info.object.label === 'WORK' ? 'Trabajo' : 'Habitual'}</b>`
+        : '')
+    }));
+  }
+  return L;
+}
+
+let rafPending = false;
+function render(){
+  if (rafPending) return;
+  rafPending = true;
+  requestAnimationFrame(() => {
+    rafPending = false;
+    overlay.setProps({layers:buildLayers()});
+  });
+}
+
+function refresh(){
+  applyFilters();
+  if (S.mode === 'trips') buildTrips();
+  render();
+  paintStats();
+}
+
+/* ======================================================================
+   ESTADÍSTICAS + GRÁFICOS
+   ====================================================================== */
+function paintStats(){
+  document.getElementById('kPts').textContent   = nfmt(VIS.length);
+  document.getElementById('kDays').textContent  = nfmt(S.dayB - S.dayA + 1);
+  document.getElementById('kHrs').textContent   = nfmt(Math.round(statHours));
+  document.getElementById('kCells').textContent = nfmt(zoneCount);
+
+  document.getElementById('sVis').textContent = nfmt(statVisits);
+  document.getElementById('sMov').textContent = nfmt(statMoves);
+  let bh = 0; for (let h = 1; h < 24; h++) if (statHour[h] > statHour[bh]) bh = h;
+  document.getElementById('sTop').textContent = String(bh).padStart(2,'0') + 'h';
+  document.getElementById('sArea').textContent = (zoneCount * 0.0625).toFixed(1);
+
+  const a = dayToDate(S.dayA), b = dayToDate(S.dayB);
+  document.getElementById('tCur').textContent = fmtDate(b);
+  document.getElementById('tRng').textContent = fmtDate(a) + '  →  ' + fmtDate(b);
+
+  if (S.mode === 'trips'){
+    const d = S.scope === 'all' ? dayToDate(NDAYS - 1) : dayToDate(Math.floor(S.cursorF));
+    document.getElementById('cineMonth').textContent =
+      d.toLocaleDateString('es-ES', {month:'long', year:'numeric'});
+    // km del recorrido efectivamente dibujado hasta el cursor
+    document.getElementById('cineKm').textContent =
+      nfmt(Math.round(tripKmUpTo())) + ' km';
+  }
+
+  bars('chHour', statHour, 24, h => String(h).padStart(2,'0') + 'h');
+  bars('chDow',  statDow,  7,  d => DOW_FULL[d]);
+  paintRank();
+  paintSpark();
+}
+
+function bars(id, arr, n, labelFn){
+  const cv = document.getElementById(id);
+  const dpr = devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  let mx = 0; for (let i = 0; i < n; i++) mx = Math.max(mx, arr[i]);
+  if (!mx) return;
+  const gap = 2, bw = (w - gap * (n - 1)) / n;
+  for (let i = 0; i < n; i++){
+    const bh = Math.max(1.5, (arr[i] / mx) * (h - 4));
+    const x = i * (bw + gap), y = h - bh;
+    const grad = g.createLinearGradient(0, y, 0, h);
+    grad.addColorStop(0, 'rgba(76,201,240,.95)');
+    grad.addColorStop(1, 'rgba(247,37,133,.42)');
+    g.fillStyle = grad;
+    g.beginPath();
+    if (g.roundRect) g.roundRect(x, y, bw, bh, [2.5, 2.5, 1, 1]); else g.rect(x, y, bw, bh);
+    g.fill();
+  }
+  cv.onmousemove = ev => {
+    const r = cv.getBoundingClientRect();
+    const i = Math.min(n - 1, Math.max(0, Math.floor((ev.clientX - r.left) / (r.width / n))));
+    tip.innerHTML = `<span class="tl">${labelFn(i)}</span><b>${nfmt(Math.round(arr[i]))}</b> registros`;
+    tip.style.left = Math.min(ev.clientX + 14, innerWidth - 220) + 'px';
+    tip.style.top  = (ev.clientY - 52) + 'px';
+    tip.classList.add('on');
+  };
+  cv.onmouseleave = () => tip.classList.remove('on');
+}
+
+function paintRank(){
+  const box = document.getElementById('rankZones');
+  if (!zoneTop.length){ box.innerHTML = '<div class="hint">Sin datos en este filtro.</div>'; return; }
+  const mx = zoneTop[0].n;
+  box.innerHTML = zoneTop.map((z, i) =>
+    `<div class="rank-row" data-y="${z.y}" data-x="${z.x}" style="cursor:pointer">
+       <span class="nm">${i + 1}. ${z.y.toFixed(4)}, ${z.x.toFixed(4)}</span>
+       <span class="tr"><i style="width:${(z.n / mx * 100).toFixed(0)}%"></i></span>
+       <span class="vl">${nfmt(Math.round(z.n))}</span>
+     </div>`).join('');
+  box.querySelectorAll('.rank-row').forEach(r => r.onclick = () => {
+    map.flyTo({center:[+r.dataset.x, +r.dataset.y], zoom:15.5, duration:1400});
+  });
+}
+
+/* histograma completo por día, para el sparkline del timeline */
+const dayHist = new Float64Array(NDAYS);
+for (let i = 0; i < N; i++) dayHist[DAY[i]]++;
+
+function paintSpark(){
+  const cv = document.getElementById('spark');
+  const dpr = devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+
+  const buckets = Math.min(w, 420);
+  const per = NDAYS / buckets;
+  let mx = 0;
+  const agg = new Float64Array(buckets);
+  for (let b = 0; b < buckets; b++){
+    let s = 0;
+    for (let d = Math.floor(b * per); d < Math.floor((b + 1) * per); d++) s += dayHist[d] || 0;
+    agg[b] = s; if (s > mx) mx = s;
+  }
+  const bw = w / buckets;
+  for (let b = 0; b < buckets; b++){
+    const d0 = Math.floor(b * per);
+    const inRange = d0 >= S.dayA && d0 <= S.dayB;
+    const bh = mx ? Math.max(1, (agg[b] / mx) * (h - 2)) : 1;
+    g.fillStyle = inRange ? 'rgba(76,201,240,.92)' : 'rgba(255,255,255,.14)';
+    g.fillRect(b * bw, h - bh, Math.max(0.8, bw - 0.4), bh);
+  }
+  // marcador del cursor
+  const cx = ((S.scope === 'all' ? NDAYS : S.cursorF + 1) / NDAYS) * w;
+  g.fillStyle = 'rgba(247,37,133,.95)';
+  g.fillRect(Math.min(w - 1.5, Math.max(0, cx - 0.75)), 0, 1.5, h);
+}
+
+/* scrub del sparkline */
+(function(){
+  const cv = document.getElementById('spark');
+  let dragging = false;
+  const setFromX = ev => {
+    const r = cv.getBoundingClientRect();
+    const f = Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
+    S.scope = 'anim';
+    S.cursorF = f * (NDAYS - 1);
+    refresh();
+  };
+  cv.addEventListener('mousedown', ev => { dragging = true; stop(); setFromX(ev); });
+  addEventListener('mousemove', ev => { if (dragging) setFromX(ev); });
+  addEventListener('mouseup', () => dragging = false);
+})();
+
+/* ======================================================================
+   ANIMACIÓN
+   ======================================================================
+   Antes: setInterval cada 70 ms saltando 2 días de golpe -> el movimiento se
+   veía a tirones y dependía de la carga del navegador.
+   Ahora: requestAnimationFrame con delta-time real y cursor fraccional, así el
+   avance es continuo y va a la misma velocidad sea cual sea el framerate.
+   ====================================================================== */
+let rafId = null, lastT = 0, statsAcc = 0, updAcc = 0;
+
+/* Cuántas veces por segundo se recalculan los datos. El cursor sigue
+   avanzando en cada cuadro, así que el movimiento no pierde suavidad: esto
+   sólo evita empujarle a deck.gl un dataset nuevo más rápido de lo que puede
+   agregarlo, que en equipos más lentos es lo que lo deja clavado. */
+const UPD_HZ = {heat:30, points:30, hex:20, grid:20};
+
+function tick(now){
+  if (!S.playing) return;
+  try {
+    const dt = Math.min(0.1, (now - lastT) / 1000);  // acotado: evita saltos al volver de otra pestaña
+    lastT = now;
+
+    S.cursorF += dt * DAYS_PER_SEC * S.speed;
+    if (S.cursorF >= NDAYS - 1 + S.windowDays * 0.4){
+      S.cursorF = S.animMode === 'cumulative' ? 21 : S.windowDays;   // reinicia el ciclo
+    }
+
+    updAcc += dt;
+    if (updAcc >= 1 / (UPD_HZ[S.mode] || 25)){
+      updAcc = 0;
+      applyFilters();
+      overlay.setProps({layers:buildLayers()});
+    }
+
+    statsAcc += dt;
+    if (statsAcc > 0.12){ statsAcc = 0; paintStats(); }
+
+    // Watchdog: si deck dejó de dibujar, no seguimos fingiendo que corre.
+    if (now - lastRenderT > 2500){
+      stop();
+      toast('La animación se detuvo: el mapa dejó de responder. Probá con menos ' +
+            'días de ventana o un tamaño de celda mayor.');
+      return;
+    }
+  } catch (err){
+    stop();
+    toast('Error en la animación: ' + err.message);
+    console.error('[tick]', err);
+    return;
+  }
+  rafId = requestAnimationFrame(tick);
+}
+
+function play(){
+  if (S.playing) return;
+  if (S.scope === 'all'){
+    S.scope = 'anim';
+    // arrancar en 0 dejaba la ventana vacía: sin puntos, sin celdas y con la
+    // normalización degenerada. Empezamos con la ventana ya completa.
+    S.cursorF = S.animMode === 'cumulative' ? 21 : S.windowDays;
+  }
+  if (!SCALE && (S.mode === 'hex' || S.mode === 'grid')) safe(lockScale, 'lockScale');
+  S.playing = true;
+  document.getElementById('btnPlay').classList.remove('play');
+  document.getElementById('icoPlay').innerHTML = '<path d="M7 4h4v16H7zM13 4h4v16h-4z"/>';
+  lastT = performance.now();
+  // Sin esto el watchdog hereda un lastRenderT viejo (de cuando la app estaba
+  // quieta) y aborta la animación en el primer cuadro.
+  lastRenderT = performance.now();
+  updAcc = 1;                       // fuerza una actualización inmediata
+  rafId = requestAnimationFrame(tick);
+}
+
+function stop(){
+  if (!S.playing) return;
+  S.playing = false;
+  if (rafId) cancelAnimationFrame(rafId);
+  rafId = null;
+  document.getElementById('btnPlay').classList.add('play');
+  document.getElementById('icoPlay').innerHTML = '<path d="M7 4l13 8-13 8z"/>';
+}
+
+document.getElementById('btnPlay').onclick = () => S.playing ? stop() : play();
+document.getElementById('btnReset').onclick = () => {
+  stop(); S.scope = 'all'; S.cursorF = NDAYS - 1; SCALE = null; refresh();
+};
+document.getElementById('mWindow').onclick = function(){
+  S.animMode = 'window'; this.classList.add('on');
+  document.getElementById('mCumul').classList.remove('on');
+  if (S.scope === 'anim' && SCALE) safe(lockScale, 'lockScale');
+  refresh();
+};
+document.getElementById('mCumul').onclick = function(){
+  S.animMode = 'cumulative'; this.classList.add('on');
+  document.getElementById('mWindow').classList.remove('on');
+  if (S.scope === 'anim' && SCALE) safe(lockScale, 'lockScale');
+  refresh();
+};
+document.querySelectorAll('[data-sp]').forEach(b => b.onclick = () => {
+  document.querySelectorAll('[data-sp]').forEach(x => x.classList.remove('on'));
+  b.classList.add('on'); S.speed = +b.dataset.sp;
+});
+
+/* ancho de la ventana móvil: con 45 días las vistas 3D se quedaban sin datos
+   suficientes para formar relieve */
+(function(){
+  const el = document.getElementById('sWin'), o = document.getElementById('oWin');
+  el.addEventListener('input', () => {
+    S.windowDays = +el.value;
+    o.textContent = S.windowDays + ' d';
+    if (S.scope === 'anim'){ if (SCALE) safe(lockScale, 'lockScale'); refresh(); }
+  });
+})();
+
+/* ======================================================================
+   CONTROLES
+   ====================================================================== */
+function bindRange(id, out, fn, fmt){
+  const el = document.getElementById(id), o = document.getElementById(out);
+  const upd = () => { const v = fn(+el.value); o.textContent = fmt(v); render(); };
+  el.addEventListener('input', upd);
+  o.textContent = fmt(fn(+el.value));
+}
+
+bindRange('sRad','oRad', v => (S.radius = v), v => v + ' px');
+bindRange('sInt','oInt', v => (S.intensity = v / 10), v => v.toFixed(1) + '×');
+bindRange('sThr','oThr', v => (S.threshold = v / 100), v => v.toFixed(2));
+bindRange('sOpa','oOpa', v => (S.opacity = v / 100), v => v.toFixed(2));
+bindRange('sCell','oCell', v => { S.cell = v; if (SCALE) safe(lockScale, 'lockScale'); return v; }, v => v + ' m');
+bindRange('sElev','oElev', v => (S.elev = v / 10), v => v.toFixed(1) + '×');
+bindRange('sCov','oCov', v => (S.coverage = v / 100), v => v.toFixed(2));
+bindRange('sPsz','oPsz', v => (S.ptSize = v / 10), v => v.toFixed(1) + ' px');
+bindRange('sTrail','oTrail', v => (S.trailDays = v), v => v + ' d');
+bindRange('sTw','oTw', v => (S.tripWidth = v / 10), v => v.toFixed(1) + ' px');
+
+document.getElementById('tgFull').onclick = function(){
+  S.tripFull = !S.tripFull; this.classList.toggle('on', S.tripFull); render();
+};
+
+/* modo de vista */
+document.querySelectorAll('#segMode button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#segMode button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  S.mode = b.dataset.m;
+  document.getElementById('pHeat').style.display = S.mode === 'heat' ? '' : 'none';
+  document.getElementById('pHex').style.display  = (S.mode === 'hex' || S.mode === 'grid') ? '' : 'none';
+  document.getElementById('pPts').style.display  = S.mode === 'points' ? '' : 'none';
+  document.getElementById('pTrips').style.display = S.mode === 'trips' ? '' : 'none';
+  document.getElementById('cine').classList.toggle('on', S.mode === 'trips');
+  // las vistas 3D piden cámara inclinada
+  if (S.mode === 'trips') buildTrips();
+  if (S.scope === 'anim' && (S.mode === 'hex' || S.mode === 'grid')) safe(lockScale, 'lockScale');
+  paintStats();
+  const want3d = (S.mode === 'hex' || S.mode === 'grid');
+  if (want3d && map.getPitch() < 20){
+    S.pitch3d = true;
+    document.getElementById('tgPitch').classList.add('on');
+    map.easeTo({pitch:52, bearing:-18, duration:900});
+  }
+  render();
+});
+
+/* escala de densidad */
+document.querySelectorAll('#pillCmp button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#pillCmp button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  S.compress = b.dataset.c;
+  document.getElementById('oCmp').textContent = b.textContent.toLowerCase();
+  if (SCALE) safe(lockScale, 'lockScale');
+  render();
+});
+
+/* toggles */
+document.getElementById('tgPlaces').onclick = function(){
+  S.places = !S.places; this.classList.toggle('on', S.places); render();
+};
+document.getElementById('tgWeight').onclick = function(){
+  S.weighted = !S.weighted; this.classList.toggle('on', S.weighted); refresh();
+};
+document.getElementById('tgPitch').onclick = function(){
+  S.pitch3d = !S.pitch3d; this.classList.toggle('on', S.pitch3d);
+  map.easeTo({pitch:S.pitch3d ? 52 : 0, bearing:S.pitch3d ? -18 : 0, duration:900});
+};
+
+/* horas */
+const hrA = document.getElementById('sHrA'), hrB = document.getElementById('sHrB');
+function hrUpd(){
+  let a = +hrA.value, b = +hrB.value;
+  if (a > b){ [a, b] = [b, a]; }
+  S.hrA = a; S.hrB = b;
+  document.getElementById('oHr').textContent =
+    String(a).padStart(2,'0') + '–' + String(b).padStart(2,'0');
+  refresh();
+}
+hrA.addEventListener('input', hrUpd); hrB.addEventListener('input', hrUpd);
+
+/* días de semana */
+const pdw = document.getElementById('pillDow');
+DOW_NAMES.forEach((nm, i) => {
+  const b = document.createElement('button');
+  b.className = 'pill on'; b.textContent = nm; b.title = DOW_FULL[i];
+  b.onclick = () => {
+    if (S.dows.has(i)) S.dows.delete(i); else S.dows.add(i);
+    if (!S.dows.size){ S.dows.add(i); return; }
+    b.classList.toggle('on', S.dows.has(i));
+    document.getElementById('oDw').textContent =
+      S.dows.size === 7 ? 'todos' : [...S.dows].sort().map(d => DOW_NAMES[d]).join(' ');
+    refresh();
+  };
+  pdw.appendChild(b);
+});
+
+/* fuentes */
+const psr = document.getElementById('pillSrc');
+SRC_NAMES.forEach((nm, i) => {
+  const b = document.createElement('button');
+  b.className = 'pill on'; b.dataset.tone = '2'; b.textContent = nm;
+  b.onclick = () => {
+    if (S.srcs.has(i)) S.srcs.delete(i); else S.srcs.add(i);
+    if (!S.srcs.size){ S.srcs.add(i); return; }
+    b.classList.toggle('on', S.srcs.has(i));
+    document.getElementById('oSrc').textContent =
+      S.srcs.size === 4 ? 'todas' : S.srcs.size + ' de 4';
+    refresh();
+  };
+  psr.appendChild(b);
+});
+
+/* ======================================================================
+   PANELES: colapsar + "explotar" en foco
+   ====================================================================== */
+const scrim = document.getElementById('scrim');
+let focused = null, ghost = null;
+
+function unfocus(){
+  if (!focused) return;
+  focused.classList.remove('focused');
+  if (ghost){ ghost.replaceWith(focused); ghost = null; }
+  scrim.classList.remove('on');
+  focused = null;
+  requestAnimationFrame(paintStats);
+}
+scrim.onclick = unfocus;
+addEventListener('keydown', e => { if (e.key === 'Escape') unfocus(); });
+
+document.querySelectorAll('.card').forEach(card => {
+  const head = card.querySelector('.card-h');
+  head.addEventListener('click', ev => {
+    if (ev.target.closest('.expand')) return;
+    if (focused === card) return;
+    card.classList.toggle('collapsed');
+  });
+  card.querySelector('.expand').addEventListener('click', ev => {
+    ev.stopPropagation();
+    if (focused === card){ unfocus(); return; }
+    unfocus();
+    card.classList.remove('collapsed');
+    ghost = document.createElement('div');
+    ghost.className = 'ghost';
+    ghost.style.height = card.offsetHeight + 'px';
+    card.replaceWith(ghost);
+    document.body.appendChild(card);
+    card.classList.add('focused');
+    focused = card;
+    scrim.classList.add('on');
+    requestAnimationFrame(paintStats);
+  });
+});
+
+/* ======================================================================
+   ARRANQUE
+   ====================================================================== */
+document.getElementById('brandsub').textContent =
+  fmtDate(EPOCH) + ' — ' + fmtDate(dayToDate(NDAYS - 1)) + '  ·  ' + nfmt(N) + ' registros';
+document.getElementById('tA').textContent = fmtShort(EPOCH);
+document.getElementById('tB').textContent = fmtShort(dayToDate(NDAYS - 1));
+DOW_NAMES.forEach(n => {
+  const s = document.createElement('span'); s.textContent = n;
+  document.getElementById('dowLabels').appendChild(s);
+});
+
+addEventListener('resize', () => requestAnimationFrame(paintStats));
+
+boot();
+</script>
+</body>
+</html>
