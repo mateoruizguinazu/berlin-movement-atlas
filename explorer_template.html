@@ -206,6 +206,12 @@ input[type=range]::-moz-range-thumb{
 .rank-row .vl{font-family:'JetBrains Mono',monospace;font-size:10.5px;color:var(--c3)}
 .rank-row .tr{width:54px;height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
 .rank-row .tr i{display:block;height:100%;background:linear-gradient(90deg,var(--c1),var(--c2));border-radius:3px}
+.pl-row{display:flex;align-items:center;gap:8px;font-size:11px;padding:4px 6px;border-radius:7px;cursor:pointer;opacity:.4;transition:all .18s}
+.pl-row:hover{background:rgba(255,255,255,.05)}
+.pl-row.live{opacity:1;background:rgba(255,255,255,.045)}
+.pl-row .sw{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.pl-row .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-row .dt{font-family:'JetBrains Mono',monospace;font-size:9.5px;color:var(--dim)}
 
 /* ---------- timeline ---------- */
 #timeline{
@@ -385,14 +391,12 @@ input[type=range]::-moz-range-thumb{
         </div>
 
         <div id="pTrips" style="display:none">
-          <div class="row"><label>Estela</label><output id="oTrail">6 d</output></div>
-          <input type="range" id="sTrail" min="1" max="120" value="6">
           <div class="row"><label>Grosor</label><output id="oTw">2.2 px</output></div>
           <input type="range" id="sTw" min="5" max="80" value="22">
           <div class="pills" style="margin-top:10px">
             <button class="pill" id="tgFull">Rastro completo</button>
           </div>
-          <div class="hint">Los trayectos se cortan tras <b style="color:var(--muted)">75 min</b> sin señal o ante saltos de más de <b style="color:var(--muted)">5 km</b>, que no son recorrido sino ruido de GPS.</div>
+          <div class="hint">La estela dura lo que el <b style="color:var(--muted)">Ancho</b> de la barra inferior: ponelo en 1 día para ver el recorrido día a día. Los trayectos se cortan tras <b style="color:var(--muted)">75 min</b> sin señal o ante saltos de más de <b style="color:var(--muted)">5 km</b>, que no son recorrido sino ruido de GPS.</div>
         </div>
 
         <div id="pPts" style="display:none">
@@ -477,6 +481,18 @@ input[type=range]::-moz-range-thumb{
       </div>
     </div>
 
+    <div class="card glass" id="c-places">
+      <div class="card-h">
+        <span class="dot" style="background:var(--ok);box-shadow:0 0 9px var(--ok)"></span><h2>Lugares</h2>
+        <button class="icobtn expand" title="Expandir"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>
+        <button class="icobtn chev"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      </div>
+      <div class="card-b">
+        <div class="rank" id="placeList"></div>
+        <div class="hint">Vigentes en la fecha del cursor, resaltados. Clic para centrar.</div>
+      </div>
+    </div>
+
     <div class="card glass" id="c-zones">
       <div class="card-h">
         <span class="dot" style="background:#a78bfa;box-shadow:0 0 9px #a78bfa"></span><h2>Zonas top</h2>
@@ -515,7 +531,7 @@ input[type=range]::-moz-range-thumb{
     </div>
     <div class="tgroup winbox">
       <label for="sWin">Ancho</label>
-      <input type="range" id="sWin" min="14" max="365" step="1" value="90">
+      <input type="range" id="sWin" min="1" max="365" step="1" value="90">
       <output id="oWin">90 d</output>
     </div>
     <div class="tgroup">
@@ -555,6 +571,18 @@ const SRC_NAMES = ['Recorrido', 'Actividad', 'Visita', 'GPS crudo'];
 const DOW_NAMES = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
 const DOW_FULL  = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'];
 
+/* Estilo por tipo de lugar. Los lugares vienen de PLACES en build_heatmap.py,
+   no de userLocationProfile: Google colapsa cinco domicilios en un solo HOME
+   y etiqueta el gimnasio como WORK. */
+const PLACE_STYLE = {
+  home:    {c:[32,201,151],  r:11, label:'Casa'},
+  work:    {c:[255,209,102], r:11, label:'Trabajo'},
+  remote:  {c:[255,209,102], r:7,  label:'Trabajo remoto'},
+  gym:     {c:[167,139,250], r:9,  label:'Gimnasio'},
+  transit: {c:[140,155,175], r:6,  label:'Tránsito'}
+};
+const pstyle = k => PLACE_STYLE[k] || PLACE_STYLE.transit;
+
 const HEAT_COLORS = [
   [11, 29, 81], [27, 108, 168], [32, 201, 151],
   [255, 209, 102], [247, 115, 74], [255, 46, 99]
@@ -589,14 +617,18 @@ const S = {
   radius:28, intensity:1.6, threshold:0.05, opacity:0.88,
   cell:120, elev:0.8, coverage:0.88, ptSize:2.0,
   compress:'log',                 // lineal | sqrt | log
-  trailDays:6, tripWidth:2.2, tripFull:false,
+  tripWidth:2.2, tripFull:false,
   places:true, weighted:true, pitch3d:false,
   playing:false, animMode:'window', windowDays:90, speed:1,
   cursorF:NDAYS-1,          // cursor fraccional: avanza sub-día, no a saltos
   scope:'all'               // 'all' = rango completo | 'anim' = ventana del cursor
 };
 
-const DAYS_PER_SEC = 30;    // velocidad base de la animación a 1x
+/* Velocidad base. Se adapta a la ventana: con 1 día no sirve avanzar 30 días
+   por segundo, no se vería nada. */
+function daysPerSec(){
+  return Math.max(0.8, Math.min(30, S.windowDays * 0.5));
+}
 
 /* índices visibles (array plano reutilizado por todas las capas) */
 let VIS = [];
@@ -742,6 +774,21 @@ function haversineKm(y1, x1, y2, x2){
   const a = Math.sin(dLat / 2) ** 2 +
             Math.cos(y1 * rad) * Math.cos(y2 * rad) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+/* TripsLayer no descarta de forma fiable los segmentos fuera del trail con
+   timestamps absolutos grandes: dibujaba los 5.463 trayectos y la ventana de
+   un día quedaba tapada por tres años de líneas. Filtramos en CPU antes de
+   pasárselos, que además reduce la geometría a lo que de verdad se ve.
+   TRIPS está ordenado por tiempo de inicio, así que se puede cortar el bucle. */
+function tripsInRange(t0, t1){
+  const out = [];
+  for (const t of TRIPS){
+    const st = t.timestamps;
+    if (st[0] > t1) break;
+    if (st[st.length - 1] >= t0) out.push(t);
+  }
+  return out;
 }
 
 function buildTrips(){
@@ -1101,9 +1148,11 @@ function buildLayers(){
     // En vista estática se ve el recorrido completo; la estela que se
     // desvanece sólo tiene sentido con el cursor en movimiento.
     const whole = S.tripFull || S.scope === 'all';
-    const trail = whole ? now + 1440 : S.trailDays * 1440;
+    // La estela dura lo que la ventana: un único control de tiempo para todos
+    // los modos, en vez de dos que se pisaban.
+    const trail = whole ? now + 1440 : S.windowDays * 1440;
     L.push(new deck.TripsLayer({
-      id:'trips', data:TRIPS,
+      id:'trips', data: whole ? TRIPS : tripsInRange(now - trail, now),
       getPath:d => d.path,
       getTimestamps:d => d.timestamps,
       getColor:[247, 37, 133],
@@ -1121,21 +1170,50 @@ function buildLayers(){
   }
 
   if (S.places && D.places.length){
+    /* Un lugar se dibuja si su vigencia se solapa con el rango mostrado, y se
+       resalta si además está vigente justo en el cursor. Así, al animar, se
+       ve cómo la casa va cambiando de un barrio a otro. */
+    const cur = S.scope === 'all' ? NDAYS - 1 : S.cursorF;
+    const shown = D.places.filter(p => p.d0 <= S.dayB && p.d1 > S.dayA);
+    const live = p => p.d0 <= cur && p.d1 > cur;
+
     L.push(new deck.ScatterplotLayer({
-      id:'places', data:D.places,
+      id:'places', data:shown,
       getPosition:p => [p.lon, p.lat],
-      getRadius:p => (p.label === 'HOME' || p.label === 'WORK') ? 13 : 7,
+      getRadius:p => pstyle(p.kind).r * (live(p) ? 1 : 0.55),
       radiusUnits:'pixels',
-      stroked:true, filled:true, lineWidthUnits:'pixels', getLineWidth:1.6,
-      getFillColor:p => p.label === 'HOME' ? [32,201,151,55]
-                     : p.label === 'WORK' ? [255,209,102,55] : [255,255,255,28],
-      getLineColor:p => p.label === 'HOME' ? [32,201,151,235]
-                     : p.label === 'WORK' ? [255,209,102,235] : [190,205,220,140],
+      stroked:true, filled:true, lineWidthUnits:'pixels',
+      getLineWidth:p => live(p) ? 2.2 : 1,
+      getFillColor:p => [...pstyle(p.kind).c, live(p) ? 55 : 18],
+      getLineColor:p => [...pstyle(p.kind).c, live(p) ? 245 : 85],
       pickable:true,
       onHover:info => showTip(info, info.object
-        ? `<span class="tl">Lugar frecuente</span><b>${info.object.label === 'HOME' ? 'Casa' : info.object.label === 'WORK' ? 'Trabajo' : 'Habitual'}</b>`
-        : '')
+        ? `<span class="tl">${pstyle(info.object.kind).label}</span>` +
+          `<b>${info.object.name}</b><br>${info.object.from.slice(0,7)} → ` +
+          `${info.object.to ? info.object.to.slice(0,7) : 'hoy'}`
+        : ''),
+      updateTriggers:{
+        getRadius:[cur], getFillColor:[cur], getLineColor:[cur], getLineWidth:[cur]
+      }
     }));
+
+    const named = shown.filter(live);
+    if (named.length){
+      L.push(new deck.TextLayer({
+        id:'place-labels', data:named,
+        getPosition:p => [p.lon, p.lat],
+        getText:p => p.name,
+        getSize:11, sizeUnits:'pixels',
+        getColor:p => [...pstyle(p.kind).c, 240],
+        getPixelOffset:[0, -17],
+        getTextAnchor:'middle', getAlignmentBaseline:'bottom',
+        fontFamily:"Inter, system-ui, sans-serif", fontWeight:700,
+        outlineWidth:4, outlineColor:[4,6,10,235],
+        fontSettings:{sdf:true, radius:12},
+        pickable:false,
+        updateTriggers:{getText:[cur], getColor:[cur]}
+      }));
+    }
   }
   return L;
 }
@@ -1188,6 +1266,7 @@ function paintStats(){
   bars('chHour', statHour, 24, h => String(h).padStart(2,'0') + 'h');
   bars('chDow',  statDow,  7,  d => DOW_FULL[d]);
   paintRank();
+  paintPlaces();
   paintSpark();
 }
 
@@ -1223,6 +1302,26 @@ function bars(id, arr, n, labelFn){
     tip.classList.add('on');
   };
   cv.onmouseleave = () => tip.classList.remove('on');
+}
+
+function paintPlaces(){
+  const box = document.getElementById('placeList');
+  if (!box) return;
+  const cur = S.scope === 'all' ? NDAYS - 1 : S.cursorF;
+  box.innerHTML = D.places.map((p, i) => {
+    const st = pstyle(p.kind);
+    const live = p.d0 <= cur && p.d1 > cur;
+    const hasta = p.to ? p.to.slice(2, 7) : 'hoy';
+    return `<div class="pl-row${live ? ' live' : ''}" data-i="${i}">
+      <span class="sw" style="background:rgb(${st.c})"></span>
+      <span class="nm" title="${p.name}">${p.name}</span>
+      <span class="dt">${p.from.slice(2, 7)}→${hasta}</span>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('.pl-row').forEach(r => r.onclick = () => {
+    const p = D.places[+r.dataset.i];
+    map.flyTo({center:[p.lon, p.lat], zoom:15.5, duration:1300});
+  });
 }
 
 function paintRank(){
@@ -1315,7 +1414,7 @@ function tick(now){
     const dt = Math.min(0.1, (now - lastT) / 1000);  // acotado: evita saltos al volver de otra pestaña
     lastT = now;
 
-    S.cursorF += dt * DAYS_PER_SEC * S.speed;
+    S.cursorF += dt * daysPerSec() * S.speed;
     if (S.cursorF >= NDAYS - 1 + S.windowDays * 0.4){
       S.cursorF = S.animMode === 'cumulative' ? 21 : S.windowDays;   // reinicia el ciclo
     }
@@ -1425,7 +1524,6 @@ bindRange('sCell','oCell', v => { S.cell = v; if (SCALE) safe(lockScale, 'lockSc
 bindRange('sElev','oElev', v => (S.elev = v / 10), v => v.toFixed(1) + '×');
 bindRange('sCov','oCov', v => (S.coverage = v / 100), v => v.toFixed(2));
 bindRange('sPsz','oPsz', v => (S.ptSize = v / 10), v => v.toFixed(1) + ' px');
-bindRange('sTrail','oTrail', v => (S.trailDays = v), v => v + ' d');
 bindRange('sTw','oTw', v => (S.tripWidth = v / 10), v => v.toFixed(1) + ' px');
 
 document.getElementById('tgFull').onclick = function(){

@@ -17,7 +17,7 @@ Fuentes de coordenadas extraídas:
 import json
 import re
 from collections import Counter
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import folium
@@ -37,6 +37,35 @@ LON_MIN, LON_MAX = 13.09, 13.77
 # Vista inicial: Friedrichshain
 CENTER = [52.5158, 13.4540]
 ZOOM = 13
+
+# --------------------------------------------------------------------------
+# Lugares con vigencia temporal.
+#
+# Se leen de `places.json`, que NO se versiona: son coordenadas de domicilios
+# y sitios personales. `places.example.json` muestra el formato con datos
+# ficticios. Sin el archivo, el mapa se genera igual, sin capa de lugares.
+#
+# Reemplazan a `userLocationProfile.frequentPlaces` del export, que Google
+# agrega mal: colapsa varios domicilios en un único HOME y llega a etiquetar
+# un gimnasio como WORK.
+#
+# Tipos: home | work | gym | remote | transit
+# --------------------------------------------------------------------------
+PLACES_FILE = Path("places.json")
+
+
+def load_places():
+    """Lee places.json. Devuelve [] si no existe."""
+    if not PLACES_FILE.exists():
+        print(f"  (sin {PLACES_FILE}: el mapa se genera sin capa de lugares)")
+        return []
+    with PLACES_FILE.open(encoding="utf-8") as fh:
+        raw = json.load(fh)
+    return [(p["name"], p["kind"], p["lat"], p["lon"], p["from"], p.get("to"))
+            for p in raw]
+
+
+PLACES = load_places()
 
 # Regex: captura dos números decimales (con signo opcional) separados por coma,
 # ignorando el símbolo de grado y espacios.
@@ -178,17 +207,13 @@ def extract_points(data):
     return points, stats
 
 
-def extract_places(data):
-    """Lugares frecuentes etiquetados (HOME / WORK / ...) dentro de Berlín."""
+def extract_places(_data=None):
+    """Lugares declarados en PLACES que caen dentro del bounding box."""
     out = []
-    for p in (data.get("userLocationProfile") or {}).get("frequentPlaces", []):
-        c = parse_latlng(p.get("placeLocation"))
-        if c and in_berlin(*c):
-            out.append({
-                "lat": c[0], "lon": c[1],
-                "label": p.get("label", "FREQUENT"),
-                "placeId": p.get("placeId"),
-            })
+    for name, kind, lat, lon, d0, d1 in PLACES:
+        if in_berlin(lat, lon):
+            out.append({"lat": lat, "lon": lon, "name": name, "kind": kind,
+                        "from": d0, "to": d1})
     return out
 
 
@@ -281,18 +306,23 @@ def build_map(heat_data, places, points):
     ).add_to(m)
 
     # Capa de lugares frecuentes (HOME / WORK)
-    fg = folium.FeatureGroup(name="Lugares frecuentes", show=True)
+    KIND_STYLE = {
+        "home":    ("#20c997", 8, "Casa"),
+        "work":    ("#ffd166", 8, "Trabajo"),
+        "remote":  ("#ffd166", 5, "Trabajo remoto"),
+        "gym":     ("#a78bfa", 6, "Gimnasio"),
+        "transit": ("#8899aa", 4, "Tránsito"),
+    }
+    fg = folium.FeatureGroup(name="Lugares", show=True)
     for pl in places:
-        label = pl["label"]
-        color = {"HOME": "#20c997", "WORK": "#ffd166"}.get(label, "#8899aa")
+        color, radius, tipo = KIND_STYLE.get(pl["kind"], ("#8899aa", 4, "Lugar"))
+        desde = pl["from"][:7]
+        hasta = pl["to"][:7] if pl["to"] else "hoy"
         folium.CircleMarker(
             location=[pl["lat"], pl["lon"]],
-            radius=7 if label in ("HOME", "WORK") else 4,
-            color=color,
-            weight=2,
-            fill=True,
-            fill_opacity=0.15,
-            tooltip=label.title(),
+            radius=radius, color=color, weight=2,
+            fill=True, fill_opacity=0.18,
+            tooltip=f"<b>{pl['name']}</b><br>{tipo} · {desde} → {hasta}",
         ).add_to(fg)
     fg.add_to(m)
 
@@ -361,8 +391,10 @@ def main():
     print("  Por fuente:")
     for src in ("timelinePath", "activity", "visit", "rawSignal"):
         print(f"    {src:<13}: {stats[src + '_kept']:>7,} / {stats[src + '_total']:,}")
-    print(f"  Lugares etiquetados     : {len(places)}  "
-          f"({', '.join(sorted({p['label'] for p in places}))})")
+    from collections import Counter as _C
+    _k = _C(pl["kind"] for pl in places)
+    print(f"  Lugares declarados      : {len(places)}  "
+          f"({', '.join(f'{v}×{k}' for k, v in sorted(_k.items()))})")
 
     if not points:
         raise SystemExit("No quedaron puntos dentro del bounding box. Revisá el filtro.")
@@ -420,13 +452,22 @@ def export_payload(points, places):
         ws.append(round(p["weight"], 2))
         srcs.append(SRC_CODES.get(p["src"], 0))
 
+    payload_ndays = days[-1] + 1
     payload = {
         "epoch": epoch.isoformat(),
-        "nDays": days[-1] + 1,
+        "nDays": payload_ndays,
         "n": len(xs),
         "x": xs, "y": ys, "day": days, "hour": hours,
         "dow": dows, "w": ws, "src": srcs, "tmin": mins,
-        "places": places,
+        "places": [
+            {**pl,
+             # días relativos al epoch: el explorador los compara directo con
+             # el cursor, sin parsear fechas en cada cuadro
+             "d0": (date.fromisoformat(pl["from"]) - epoch).days,
+             "d1": ((date.fromisoformat(pl["to"]) - epoch).days
+                    if pl["to"] else payload_ndays)}
+            for pl in places
+        ],
         "bbox": [LAT_MIN, LON_MIN, LAT_MAX, LON_MAX],
         "center": CENTER,
     }

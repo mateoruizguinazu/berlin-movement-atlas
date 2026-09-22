@@ -36,6 +36,23 @@ python3 -m http.server 8777
 
 Y abrí `http://localhost:8777/berlin_explorer.html`.
 
+### Marcar tus lugares
+
+Opcional. Copiá `places.example.json` a `places.json` y poné los tuyos:
+
+```json
+[
+  {"name":"Casa","kind":"home","lat":52.52,"lon":13.40,"from":"2023-06-01","to":"2024-01-01"},
+  {"name":"Casa","kind":"home","lat":52.53,"lon":13.42,"from":"2024-01-01","to":null}
+]
+```
+
+Tipos: `home`, `work`, `gym`, `remote`, `transit`. `to: null` significa vigente. Cada lugar sólo se dibuja en las fechas en que estuvo vigente, así que al animar se ve cómo la casa cambia de barrio.
+
+**`places.json` está en el `.gitignore`**: son coordenadas de domicilios y no deberían acabar en un repositorio. Sin el archivo, el mapa se genera igual, sin esa capa.
+
+Conviene no inventar las coordenadas ni geocodificar la dirección: es más preciso sacarlas de los propios datos, buscando el centroide ponderado por horas de estadía de las visitas de cada período. Para los domicilios, filtrar las estadías de más de 2 h entre las 20 h y las 8 h da directamente dónde dormías.
+
 ### Adaptarlo a otra ciudad
 
 En `build_heatmap.py`:
@@ -113,4 +130,5 @@ build_heatmap.py        # parsea el export, filtra por bbox, genera el folium
                         # y exporta berlin_points.json
 build_explorer.py       # inyecta los datos en el template -> berlin_explorer.html
 explorer_template.html  # el explorador deck.gl (UI, capas, animación)
+places.example.json     # plantilla de lugares (copiar a places.json)
 ```

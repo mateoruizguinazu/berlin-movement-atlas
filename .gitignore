@@ -19,3 +19,6 @@ __pycache__/
 *.pyc
 .DS_Store
 .claude/
+
+# Lugares personales (domicilios, trabajo). Ver places.example.json
+places.json

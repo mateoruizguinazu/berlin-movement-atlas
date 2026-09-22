@@ -1,0 +1,34 @@
+[
+  {
+    "name": "Casa",
+    "kind": "home",
+    "lat": 52.52,
+    "lon": 13.405,
+    "from": "2023-06-01",
+    "to": "2024-01-01"
+  },
+  {
+    "name": "Casa",
+    "kind": "home",
+    "lat": 52.53,
+    "lon": 13.42,
+    "from": "2024-01-01",
+    "to": null
+  },
+  {
+    "name": "Oficina",
+    "kind": "work",
+    "lat": 52.51,
+    "lon": 13.39,
+    "from": "2023-06-01",
+    "to": "2025-06-01"
+  },
+  {
+    "name": "Gimnasio",
+    "kind": "gym",
+    "lat": 52.525,
+    "lon": 13.43,
+    "from": "2024-01-01",
+    "to": null
+  }
+]
